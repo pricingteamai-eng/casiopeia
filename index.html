@@ -15,7 +15,19 @@
         th { background-color: #f3f4f6; font-weight: 600; color: #374151; white-space: nowrap; position: sticky; top: 0; }
         tbody tr:nth-child(even) { background-color: #f9fafb; }
         tbody tr:hover { background-color: #e5edff; transition: 0.2s; }
-        .draft-box { white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; font-size: 13px; height: 300px; overflow-y: auto; }
+        .draft-box {
+            white-space: pre;
+            overflow-x: auto;
+            font-family: 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            padding: 1rem;
+            background-color: #f9fafb;
+            color: #4b5563;
+        }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
@@ -77,7 +89,7 @@
                             <h2 class="text-lg font-bold border-l-4 border-yellow-500 pl-3">✉️ Draft Email</h2>
                             <button onclick="copyText('emailDraftText')" class="bg-yellow-100 hover:bg-yellow-200 text-yellow-800 text-xs font-bold py-1 px-3 rounded border border-yellow-300">Copy Email</button>
                         </div>
-                        <div id="emailDraftText" class="draft-box border border-gray-200 p-4 rounded bg-gray-50 text-gray-700"></div>
+                        <div id="emailDraftText" class="draft-box rounded"></div>
                     </div>
                     
                     <div>
@@ -85,7 +97,7 @@
                             <h2 class="text-lg font-bold border-l-4 border-green-500 pl-3">💬 Draft WhatsApp</h2>
                             <button onclick="copyText('waDraftText')" class="bg-green-100 hover:bg-green-200 text-green-800 text-xs font-bold py-1 px-3 rounded border border-green-300">Copy WA</button>
                         </div>
-                        <div id="waDraftText" class="draft-box !height-[150px] border border-gray-200 p-4 rounded bg-gray-50 text-gray-700" style="height: 150px;"></div>
+                        <div id="waDraftText" class="draft-box rounded" style="height: 150px;"></div>
                     </div>
                 </div>
             </div>
@@ -205,6 +217,7 @@
                 const data = tempGroup[prop];
                 let kalahGH = [];
                 let kalahPE = [];
+                let details = [];
 
                 dateColumns.forEach(date => {
                     const native = data.nativeRates[date];
@@ -212,8 +225,14 @@
                     const pe = data.peRates[date];
 
                     if (native > 0) {
-                        if (gh > 0 && native > gh) kalahGH.push(date);
-                        if (pe > 0 && native > pe) kalahPE.push(date);
+                        if (gh > 0 && native > gh) {
+                            kalahGH.push(date);
+                            details.push({ tgl: date, platform: "Google Hotel", native: native, compRate: gh, compName: data.ghCompetitor });
+                        }
+                        if (pe > 0 && native > pe) {
+                            kalahPE.push(date);
+                            details.push({ tgl: date, platform: "PE Log", native: native, compRate: pe, compName: data.peVendor });
+                        }
                     }
                 });
 
@@ -221,6 +240,7 @@
                     analyzedProperties[prop] = {
                         kalahGH_dates: kalahGH,
                         kalahPE_dates: kalahPE,
+                        details: details,
                         ghCompetitor: data.ghCompetitor,
                         peVendor: data.peVendor
                     };
@@ -265,39 +285,29 @@
         function generateDraft(propName) {
             const data = analyzedProperties[propName];
             
-            let platformKalah = [];
+            let platformKalah = new Set();
             let competitorWA = "";
-            let dataTabelKalah = [];
 
-            // Kumpulkan data untuk dibuatkan tabel
-            if (data.kalahGH_dates.length > 0) {
-                platformKalah.push("Google Hotel");
-                competitorWA = data.ghCompetitor;
-                data.kalahGH_dates.forEach(d => {
-                    dataTabelKalah.push({ tgl: d, platform: "Google Hotel", comp: data.ghCompetitor });
-                });
-            }
-            if (data.kalahPE_dates.length > 0) {
-                platformKalah.push("PE Log");
-                if(!competitorWA || competitorWA === 'N/A') competitorWA = data.peVendor;
-                data.kalahPE_dates.forEach(d => {
-                    dataTabelKalah.push({ tgl: d, platform: "PE Log", comp: data.peVendor });
-                });
-            }
+            // Format angka dengan separator ribuan
+            const fmt = (num) => new Intl.NumberFormat('id-ID').format(num);
 
             // Membuat Header Tabel Teks
-            let textTable = "Tanggal Check-in | Platform       | Kompetitor Termurah\n";
-            textTable += "---------------------------------------------------------\n";
+            let textTable = "Tanggal Check-in | Platform     | Harga Tiket | Harga Kompetitor | Kompetitor\n";
+            textTable += "--------------------------------------------------------------------------------------\n";
             
             // Mengisi baris tabel
-            dataTabelKalah.forEach(item => {
-                // padEnd agar kolom sejajar rapi
+            data.details.forEach(item => {
+                platformKalah.add(item.platform);
+                if (!competitorWA || competitorWA === 'N/A') competitorWA = item.compName;
+
                 let padTgl = String(item.tgl).padEnd(16, ' ');
-                let padPlat = String(item.platform).padEnd(14, ' ');
-                textTable += `${padTgl} | ${padPlat} | ${item.comp}\n`;
+                let padPlat = String(item.platform).padEnd(12, ' ');
+                let padNative = fmt(item.native).padStart(11, ' ');
+                let padCompRate = fmt(item.compRate).padStart(16, ' ');
+                textTable += `${padTgl} | ${padPlat} | ${padNative} | ${padCompRate} | ${item.compName}\n`;
             });
 
-            const platformString = platformKalah.join(' & ');
+            const platformString = Array.from(platformKalah).join(' & ');
 
             // Draft Email dengan Tabel
             const emailDraft = `Subjek: [PENTING] Update Kompetisi Harga & Potensi Kehilangan Booking - ${propName}
