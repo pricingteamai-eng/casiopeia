@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Price Competitiveness Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .table-container { overflow-x: auto; margin-top: 1.5rem; max-height: 400px;}
+        table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        th, td { border: 1px solid #e5e7eb; padding: 0.75rem 0.5rem; text-align: left; }
+        th { background-color: #f3f4f6; font-weight: 600; color: #374151; white-space: nowrap; position: sticky; top: 0; }
+        tbody tr:nth-child(even) { background-color: #f9fafb; }
+        tbody tr:hover { background-color: #e5edff; transition: 0.2s; }
+        .draft-box { white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; font-size: 13px; height: 300px; overflow-y: auto; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    </style>
+</head>
+<body class="bg-slate-50 p-4 md:p-8 text-gray-800">
+
+    <div class="max-w-7xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <!-- Header -->
+        <div class="border-b pb-4 mb-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-blue-700 flex items-center gap-2">📊 AM Dashboard: Price Competitiveness</h1>
+                <p class="text-gray-500 text-sm mt-1">Sistem Deteksi Pintar menggunakan Anchor "Competitive Flagging".</p>
+            </div>
+        </div>
+
+        <!-- Upload & Action -->
+        <div class="bg-blue-50 border border-blue-100 rounded-lg p-5 mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 shadow-sm items-end">
+            <div class="md:col-span-2">
+                <label class="block text-sm font-semibold mb-1 text-blue-700">📂 Upload Data (.CSV/.XLSX)</label>
+                <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" class="w-full border border-gray-300 p-2 rounded bg-white text-sm cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200">
+                <span id="fileStatus" class="text-xs text-red-500 font-medium mt-1 block">Belum ada file yang dipilih.</span>
+            </div>
+            <div>
+                <button id="analyzeBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded shadow transition duration-200 flex items-center justify-center gap-2">
+                    🔍 ANALYZE DATA
+                </button>
+            </div>
+        </div>
+
+        <!-- Result Section -->
+        <div id="resultArea" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Table View -->
+                <div>
+                    <h2 class="text-lg font-bold border-l-4 border-blue-600 pl-3 mb-3">Daftar Properti Tidak Kompetitif</h2>
+                    <div class="table-container shadow-sm border rounded-lg bg-white">
+                        <table id="resultTable">
+                            <thead>
+                                <tr>
+                                    <th>Property Name</th>
+                                    <th class="text-center">Kalah GH</th>
+                                    <th class="text-center">Kalah PE Log</th>
+                                    <th class="text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Data inject -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Draft View -->
+                <div id="draftArea" class="hidden flex flex-col gap-4">
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <h2 class="text-lg font-bold border-l-4 border-yellow-500 pl-3">✉️ Draft Email</h2>
+                            <button onclick="copyText('emailDraftText')" class="bg-yellow-100 hover:bg-yellow-200 text-yellow-800 text-xs font-bold py-1 px-3 rounded border border-yellow-300">Copy Email</button>
+                        </div>
+                        <div id="emailDraftText" class="draft-box border border-gray-200 p-4 rounded bg-gray-50 text-gray-700"></div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <h2 class="text-lg font-bold border-l-4 border-green-500 pl-3">💬 Draft WhatsApp</h2>
+                            <button onclick="copyText('waDraftText')" class="bg-green-100 hover:bg-green-200 text-green-800 text-xs font-bold py-1 px-3 rounded border border-green-300">Copy WA</button>
+                        </div>
+                        <div id="waDraftText" class="draft-box !height-[150px] border border-gray-200 p-4 rounded bg-gray-50 text-gray-700" style="height: 150px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let globalRawData = [];
+        let analyzedProperties = {}; 
+
+        // File Handler
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const statusText = document.getElementById('fileStatus');
+            if (!file) { statusText.textContent = "Belum ada file yang dipilih."; statusText.className = "text-xs text-red-500 font-medium mt-1 block"; globalRawData = []; return; }
+            statusText.textContent = "Membaca file..."; statusText.className = "text-xs text-orange-500 font-medium mt-1 block";
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    let data = new Uint8Array(e.target.result);
+                    let workbook = XLSX.read(data, {type: 'array'});
+                    globalRawData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {defval: ""});
+                    
+                    if (globalRawData.length > 0 && Object.keys(globalRawData[0]).length <= 2) {
+                        const textReader = new FileReader();
+                        textReader.onload = function(evt) {
+                            const text = evt.target.result;
+                            const delim = text.includes('\t') ? '\t' : ','; 
+                            Papa.parse(text, {
+                                header: true,
+                                skipEmptyLines: true,
+                                delimiter: delim,
+                                complete: res => {
+                                    globalRawData = res.data;
+                                    statusText.textContent = `✅ CSV/TSV File ready! (${globalRawData.length} baris)`; 
+                                    statusText.className = "text-xs text-green-600 font-bold mt-1 block";
+                                }
+                            });
+                        };
+                        textReader.readAsText(file, 'UTF-16LE'); 
+                        return;
+                    }
+
+                    statusText.textContent = `✅ Excel/CSV File ready! (${globalRawData.length} baris)`; 
+                    statusText.className = "text-xs text-green-600 font-bold mt-1 block";
+                } catch(err) {
+                    statusText.textContent = "❌ Gagal membaca file. Pastikan format benar.";
+                    statusText.className = "text-xs text-red-600 font-bold mt-1 block";
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        const cleanNum = (str) => {
+            if (!str) return 0;
+            const num = parseFloat(String(str).replace(/,/g, '').replace(/%/g, '').trim());
+            return isNaN(num) ? 0 : num;
+        };
+
+        // Analyze Data menggunakan Logika "Anchor" (Jangkar)
+        document.getElementById('analyzeBtn').addEventListener('click', function() {
+            if (globalRawData.length === 0) return alert("Silakan upload file data terlebih dahulu atau tunggu sampai status 'Ready'!");
+
+            analyzedProperties = {};
+            
+            let keys = Object.keys(globalRawData[0]);
+            let anchorIndex = keys.findIndex(k => String(k).trim().toLowerCase() === 'competitive flagging');
+            
+            if (anchorIndex === -1) {
+                alert("Error: Kolom 'Competitive Flagging' tidak ditemukan. Pastikan format file sesuai.");
+                return;
+            }
+
+            const metricColName = keys[anchorIndex + 1];
+            const dateColumns = keys.slice(anchorIndex + 2).filter(k => String(k).trim() !== '');
+
+            // Grouping Logic
+            let tempGroup = {};
+            globalRawData.forEach(row => {
+                let propKey = Object.keys(row).find(k => k.toLowerCase().includes('property name'));
+                const propName = propKey ? row[propKey] : null;
+                
+                if (!propName || String(propName).trim() === '') return;
+                
+                const metricValue = String(row[metricColName] || '').trim();
+                
+                if (!tempGroup[propName]) {
+                    tempGroup[propName] = { 
+                        ghCompetitor: 'N/A',
+                        peVendor: 'N/A',
+                        nativeRates: {}, peRates: {}, ghRates: {} 
+                    };
+                }
+
+                let ghCompKey = Object.keys(row).find(k => k.toLowerCase().includes('google hotel cheapest competitor'));
+                let peVendKey = Object.keys(row).find(k => k.toLowerCase().includes('pe log cheapest vendor'));
+
+                if (ghCompKey && row[ghCompKey] && String(row[ghCompKey]).trim() !== '') {
+                    tempGroup[propName].ghCompetitor = row[ghCompKey];
+                }
+                if (peVendKey && row[peVendKey] && String(row[peVendKey]).trim() !== '') {
+                    tempGroup[propName].peVendor = row[peVendKey];
+                }
+
+                if (metricValue.includes('Native')) {
+                    dateColumns.forEach(d => tempGroup[propName].nativeRates[d] = cleanNum(row[d]));
+                } else if (metricValue.includes('PE Log') && !metricValue.includes('Difference')) {
+                    dateColumns.forEach(d => tempGroup[propName].peRates[d] = cleanNum(row[d]));
+                } else if (metricValue.includes('Google Hotel') && !metricValue.includes('Competitor')) {
+                    dateColumns.forEach(d => tempGroup[propName].ghRates[d] = cleanNum(row[d]));
+                }
+            });
+
+            // Compare Rates
+            Object.keys(tempGroup).forEach(prop => {
+                const data = tempGroup[prop];
+                let kalahGH = [];
+                let kalahPE = [];
+
+                dateColumns.forEach(date => {
+                    const native = data.nativeRates[date];
+                    const gh = data.ghRates[date];
+                    const pe = data.peRates[date];
+
+                    if (native > 0) {
+                        if (gh > 0 && native > gh) kalahGH.push(date);
+                        if (pe > 0 && native > pe) kalahPE.push(date);
+                    }
+                });
+
+                if (kalahGH.length > 0 || kalahPE.length > 0) {
+                    analyzedProperties[prop] = {
+                        kalahGH_dates: kalahGH,
+                        kalahPE_dates: kalahPE,
+                        ghCompetitor: data.ghCompetitor,
+                        peVendor: data.peVendor
+                    };
+                }
+            });
+
+            // Render Table
+            let tbody = document.querySelector('#resultTable tbody');
+            tbody.innerHTML = '';
+            
+            let sortedProps = Object.keys(analyzedProperties).sort((a, b) => {
+                const totalA = analyzedProperties[a].kalahGH_dates.length + analyzedProperties[a].kalahPE_dates.length;
+                const totalB = analyzedProperties[b].kalahGH_dates.length + analyzedProperties[b].kalahPE_dates.length;
+                return totalB - totalA;
+            });
+
+            if(sortedProps.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-6"><b>Tidak ada properti yang kalah saing harga.</b><br>Semua properti kompetitif!</td></tr>';
+            } else {
+                sortedProps.forEach(prop => {
+                    const d = analyzedProperties[prop];
+                    let tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="font-bold text-blue-800">${prop}</td>
+                        <td class="text-center text-red-600 font-semibold">${d.kalahGH_dates.length} tgl</td>
+                        <td class="text-center text-orange-600 font-semibold">${d.kalahPE_dates.length} tgl</td>
+                        <td class="text-center">
+                            <button onclick="generateDraft('${prop}')" class="bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs font-bold py-1.5 px-3 rounded shadow-sm transition">
+                                Buat Draft
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+
+            document.getElementById('resultArea').classList.remove('hidden');
+            document.getElementById('draftArea').classList.add('hidden');
+        });
+
+        // Generate Drafts Function (dengan bentuk Tabel Text untuk Email)
+        function generateDraft(propName) {
+            const data = analyzedProperties[propName];
+            
+            let platformKalah = [];
+            let competitorWA = "";
+            let dataTabelKalah = [];
+
+            // Kumpulkan data untuk dibuatkan tabel
+            if (data.kalahGH_dates.length > 0) {
+                platformKalah.push("Google Hotel");
+                competitorWA = data.ghCompetitor;
+                data.kalahGH_dates.forEach(d => {
+                    dataTabelKalah.push({ tgl: d, platform: "Google Hotel", comp: data.ghCompetitor });
+                });
+            }
+            if (data.kalahPE_dates.length > 0) {
+                platformKalah.push("PE Log");
+                if(!competitorWA || competitorWA === 'N/A') competitorWA = data.peVendor;
+                data.kalahPE_dates.forEach(d => {
+                    dataTabelKalah.push({ tgl: d, platform: "PE Log", comp: data.peVendor });
+                });
+            }
+
+            // Membuat Header Tabel Teks
+            let textTable = "Tanggal Check-in | Platform       | Kompetitor Termurah\n";
+            textTable += "---------------------------------------------------------\n";
+            
+            // Mengisi baris tabel
+            dataTabelKalah.forEach(item => {
+                // padEnd agar kolom sejajar rapi
+                let padTgl = String(item.tgl).padEnd(16, ' ');
+                let padPlat = String(item.platform).padEnd(14, ' ');
+                textTable += `${padTgl} | ${padPlat} | ${item.comp}\n`;
+            });
+
+            const platformString = platformKalah.join(' & ');
+
+            // Draft Email dengan Tabel
+            const emailDraft = `Subjek: [PENTING] Update Kompetisi Harga & Potensi Kehilangan Booking - ${propName}
+Kepada: Tim Reservasi / Revenue ${propName}
+
+Semoga email ini mendapati Anda dalam keadaan baik.
+
+Bersama email ini, kami dari tim Akomodasi tiket.com ingin menginformasikan bahwa berdasarkan pantauan sistem rutin kami, harga ${propName} saat ini terpantau kurang kompetitif dibandingkan dengan penawaran kompetitor.
+
+Berikut adalah detail pantauan sistem kami:
+
+${textTable}
+Kondisi harga yang tidak kompetitif ini dapat menurunkan visibilitas properti Anda secara signifikan dan berdampak langsung pada turunnya konversi pemesanan (booking) dari tamu.
+
+Kami sangat menyarankan Bapak/Ibu untuk segera melakukan penyesuaian rate atau mempertimbangkan untuk mengaktifkan tactical promo khusus untuk rentang tanggal di atas agar harga di tiket.com kembali kompetitif.
+
+Jika membutuhkan diskusi lebih lanjut terkait strategi pricing, silakan balas email ini. 
+
+Salam hangat,
+
+Account Manager, Accommodation
+tiket.com`;
+
+            // Draft WA tetap ringkas (Tabel di WA mobile biasanya berantakan)
+            const waDraft = `Halo Tim ${propName}! 👋 Saya Account Manager dari tiket.com. 
+
+Ingin info singkat saja kalau harga properti Bapak/Ibu saat ini sedang kalah saing di *${platformString}* (vs ${competitorWA}) untuk beberapa tanggal check-in. 
+
+Detail lengkap tanggalnya baru saja saya kirimkan ke email ya. Yuk kita review rate-nya bareng supaya visibilitas dan booking-an hotel Bapak/Ibu bisa naik lagi di tiket.com! Boleh kabari saya kalau emailnya sudah dicek ya. Terima kasih! 🙏`;
+
+            document.getElementById('emailDraftText').textContent = emailDraft;
+            document.getElementById('waDraftText').textContent = waDraft;
+            document.getElementById('draftArea').classList.remove('hidden');
+            document.getElementById('draftArea').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Copy Clipboard
+        function copyText(elementId) {
+            const text = document.getElementById(elementId).innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Teks berhasil disalin ke Clipboard!');
+            }).catch(err => {
+                alert('Gagal menyalin teks: ', err);
+            });
+        }
+    </script>
+</body>
+</html>
