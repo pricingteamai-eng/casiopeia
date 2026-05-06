@@ -89,11 +89,15 @@
                         <table id="dashboardTable">
                             <thead>
                                 <tr>
+                                    <th>Day of Search</th>
+                                    <th>Tanggal CI</th>
+                                    <th>Status</th>
                                     <th>Tanggal</th>
                                     <th>Platform</th>
                                     <th class="text-right">Harga Tiket</th>
                                     <th class="text-right">Harga Kompetitor</th>
                                     <th class="text-center">Selisih</th>
+                                    <th>Deskripsi</th>
                                     <th>Kompetitor</th>
                                 </tr>
                             </thead>
@@ -183,7 +187,6 @@
             globalRawData.forEach(row => {
                 let propKey = Object.keys(row).find(k => k.toLowerCase().includes('property name'));
                 const propName = propKey ? row[propKey] : null;
-                
                 if (!propName || String(propName).trim() === '') return;
                 
                 const metricValue = String(row[metricColName] || '').trim();
@@ -192,12 +195,22 @@
                     tempGroup[propName] = { 
                         ghCompetitor: 'N/A',
                         peVendor: 'N/A',
+                        dayOfSearch: 'N/A',
+                        flagging: 'N/A',
                         nativeRates: {}, peRates: {}, ghRates: {} 
                     };
                 }
 
-                let ghCompKey = Object.keys(row).find(k => k.toLowerCase().includes('google hotel cheapest competitor'));
-                let peVendKey = Object.keys(row).find(k => k.toLowerCase().includes('pe log cheapest vendor'));
+                // Get Day of Search
+                let dosKey = Object.keys(row).find(k => k.toLowerCase().includes('day of search'));
+                if (dosKey && row[dosKey]) tempGroup[propName].dayOfSearch = row[dosKey];
+
+                // Get Flagging
+                let flagKey = keys[anchorIndex];
+                if (flagKey && row[flagKey]) tempGroup[propName].flagging = row[flagKey];
+
+                let ghCompKey = Object.keys(row).find(k => k.toLowerCase().includes('google hotel cheapest') && !k.toLowerCase().includes('price') && !k.toLowerCase().includes('rate'));
+                let peVendKey = Object.keys(row).find(k => k.toLowerCase().includes('pe log cheapest') && !k.toLowerCase().includes('price') && !k.toLowerCase().includes('rate'));
 
                 if (ghCompKey && row[ghCompKey] && String(row[ghCompKey]).trim() !== '') {
                     tempGroup[propName].ghCompetitor = row[ghCompKey];
@@ -206,12 +219,12 @@
                     tempGroup[propName].peVendor = row[peVendKey];
                 }
 
-                if (metricValue.includes('Native')) {
-                    dateColumns.forEach(d => tempGroup[propName].nativeRates[d] = cleanNum(row[d]));
-                } else if (metricValue.includes('PE Log') && !metricValue.includes('Difference')) {
-                    dateColumns.forEach(d => tempGroup[propName].peRates[d] = cleanNum(row[d]));
-                } else if (metricValue.includes('Google Hotel') && !metricValue.includes('Competitor')) {
-                    dateColumns.forEach(d => tempGroup[propName].ghRates[d] = cleanNum(row[d]));
+                if (metricValue.toLowerCase().includes('native') && metricValue.toLowerCase().includes('price')) {
+                    dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].nativeRates[d] = cleanNum(row[d]); });
+                } else if (metricValue.toLowerCase().includes('pe log') && metricValue.toLowerCase().includes('price')) {
+                    dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].peRates[d] = cleanNum(row[d]); });
+                } else if (metricValue.toLowerCase().includes('google hotel') && metricValue.toLowerCase().includes('price')) {
+                    dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].ghRates[d] = cleanNum(row[d]); });
                 }
             });
 
@@ -245,7 +258,9 @@
                         kalahPE_dates: kalahPE,
                         details: details,
                         ghCompetitor: data.ghCompetitor,
-                        peVendor: data.peVendor
+                        peVendor: data.peVendor,
+                        dayOfSearch: data.dayOfSearch,
+                        flagging: data.flagging
                     };
                 }
             });
@@ -298,13 +313,19 @@
                 const diffValue = item.native - item.compRate;
                 const diffPct = ((diffValue / item.native) * 100).toFixed(1);
 
+                // Description Logic
+                const deskripsi = `Harga Native (${fmt(item.native)}) lebih mahal dari ${item.platform} (${fmt(item.compRate)})`;
+
                 let tr = document.createElement('tr');
                 tr.innerHTML = `
+                    <td class="whitespace-nowrap text-gray-500">${data.dayOfSearch}</td>
                     <td class="whitespace-nowrap font-medium">${item.tgl}</td>
+                    <td><span class="px-2 py-0.5 rounded text-[10px] font-bold ${data.flagging.toLowerCase().includes('not') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${data.flagging}</span></td>
                     <td><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${item.platform === 'Google Hotel' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}">${item.platform}</span></td>
                     <td class="text-right font-semibold">${fmt(item.native)}</td>
                     <td class="text-right text-red-600 font-semibold">${fmt(item.compRate)}</td>
                     <td class="text-center"><span class="text-red-700 font-bold">-${diffPct}%</span></td>
+                    <td class="text-xs text-gray-600 italic">${deskripsi}</td>
                     <td class="text-gray-600 text-xs">${item.compName}</td>
                 `;
                 tbody.appendChild(tr);
