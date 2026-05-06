@@ -91,14 +91,13 @@
                                 <tr>
                                     <th>Day of Search</th>
                                     <th>Tanggal CI</th>
-                                    <th>Status</th>
-                                    <th>Tanggal</th>
+                                    <th>Status Flag</th>
                                     <th>Platform</th>
                                     <th class="text-right">Harga Tiket</th>
                                     <th class="text-right">Harga Kompetitor</th>
                                     <th class="text-center">Selisih</th>
                                     <th>Deskripsi</th>
-                                    <th>Kompetitor</th>
+                                    <th>Vendor Kompetitor</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -165,6 +164,16 @@
             return isNaN(num) ? 0 : num;
         };
 
+        const formatExcelDate = (val) => {
+            if (!val) return 'N/A';
+            if (!isNaN(val) && !isNaN(parseFloat(val))) {
+                const num = parseFloat(val);
+                const date = new Date(Math.round((num - 25569) * 864e5));
+                return date.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' });
+            }
+            return String(val);
+        };
+
         // Analyze Data menggunakan Logika "Anchor" (Jangkar)
         document.getElementById('analyzeBtn').addEventListener('click', function() {
             if (globalRawData.length === 0) return alert("Silakan upload file data terlebih dahulu atau tunggu sampai status 'Ready'!");
@@ -197,34 +206,29 @@
                         peVendor: 'N/A',
                         dayOfSearch: 'N/A',
                         flagging: 'N/A',
-                        nativeRates: {}, peRates: {}, ghRates: {} 
+                        nativeRates: {}, peRates: {}, ghRates: {},
+                        ghVendors: {}, peVendors: {}
                     };
                 }
 
-                // Get Day of Search
+                // Get Day of Search & Flagging from any row that has it
                 let dosKey = Object.keys(row).find(k => k.toLowerCase().includes('day of search'));
-                if (dosKey && row[dosKey]) tempGroup[propName].dayOfSearch = row[dosKey];
+                if (dosKey && row[dosKey] && tempGroup[propName].dayOfSearch === 'N/A') tempGroup[propName].dayOfSearch = formatExcelDate(row[dosKey]);
 
-                // Get Flagging
                 let flagKey = keys[anchorIndex];
-                if (flagKey && row[flagKey]) tempGroup[propName].flagging = row[flagKey];
+                if (flagKey && row[flagKey] && tempGroup[propName].flagging === 'N/A') tempGroup[propName].flagging = row[flagKey];
 
-                let ghCompKey = Object.keys(row).find(k => k.toLowerCase().includes('google hotel cheapest') && !k.toLowerCase().includes('price') && !k.toLowerCase().includes('rate'));
-                let peVendKey = Object.keys(row).find(k => k.toLowerCase().includes('pe log cheapest') && !k.toLowerCase().includes('price') && !k.toLowerCase().includes('rate'));
-
-                if (ghCompKey && row[ghCompKey] && String(row[ghCompKey]).trim() !== '') {
-                    tempGroup[propName].ghCompetitor = row[ghCompKey];
-                }
-                if (peVendKey && row[peVendKey] && String(row[peVendKey]).trim() !== '') {
-                    tempGroup[propName].peVendor = row[peVendKey];
-                }
-
-                if (metricValue.toLowerCase().includes('native') && metricValue.toLowerCase().includes('price')) {
+                const lowMetric = metricValue.toLowerCase();
+                if (lowMetric.includes('native') && lowMetric.includes('price')) {
                     dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].nativeRates[d] = cleanNum(row[d]); });
-                } else if (metricValue.toLowerCase().includes('pe log') && metricValue.toLowerCase().includes('price')) {
+                } else if (lowMetric.includes('pe log') && lowMetric.includes('price')) {
                     dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].peRates[d] = cleanNum(row[d]); });
-                } else if (metricValue.toLowerCase().includes('google hotel') && metricValue.toLowerCase().includes('price')) {
+                } else if (lowMetric.includes('google hotel') && lowMetric.includes('price')) {
                     dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].ghRates[d] = cleanNum(row[d]); });
+                } else if (lowMetric.includes('pe log') && lowMetric.includes('cheapest') && !lowMetric.includes('price')) {
+                    dateColumns.forEach(d => { if (row[d]) tempGroup[propName].peVendors[d] = row[d]; });
+                } else if (lowMetric.includes('google hotel') && lowMetric.includes('cheapest') && !lowMetric.includes('price')) {
+                    dateColumns.forEach(d => { if (row[d]) tempGroup[propName].ghVendors[d] = row[d]; });
                 }
             });
 
@@ -243,13 +247,32 @@
                     if (native > 0) {
                         if (gh > 0 && native > gh) {
                             kalahGH.push(date);
-                            details.push({ tgl: date, platform: "Google Hotel", native: native, compRate: gh, compName: data.ghCompetitor });
+                            details.push({
+                                tgl: date,
+                                platform: "Google Hotel",
+                                native: native,
+                                compRate: gh,
+                                compName: data.ghVendors[date] || data.ghCompetitor || 'N/A'
+                            });
                         }
                         if (pe > 0 && native > pe) {
                             kalahPE.push(date);
-                            details.push({ tgl: date, platform: "PE Log", native: native, compRate: pe, compName: data.peVendor });
+                            details.push({
+                                tgl: date,
+                                platform: "PE Log",
+                                native: native,
+                                compRate: pe,
+                                compName: data.peVendors[date] || data.peVendor || 'N/A'
+                            });
                         }
                     }
+                });
+
+                // Sort details by CI date
+                details.sort((a, b) => {
+                    const da = parseFloat(a.tgl) || 0;
+                    const db = parseFloat(b.tgl) || 0;
+                    return da - db;
                 });
 
                 if (kalahGH.length > 0 || kalahPE.length > 0) {
@@ -269,11 +292,7 @@
             const propertySelect = document.getElementById('propertySelect');
             propertySelect.innerHTML = '<option value="">-- Pilih Hotel --</option>';
             
-            let sortedProps = Object.keys(analyzedProperties).sort((a, b) => {
-                const totalA = analyzedProperties[a].kalahGH_dates.length + analyzedProperties[a].kalahPE_dates.length;
-                const totalB = analyzedProperties[b].kalahGH_dates.length + analyzedProperties[b].kalahPE_dates.length;
-                return totalB - totalA;
-            });
+            let sortedProps = Object.keys(analyzedProperties).sort((a, b) => a.localeCompare(b));
 
             if(sortedProps.length === 0) {
                 alert("Tidak ada properti yang kalah saing harga.");
@@ -303,9 +322,9 @@
         function renderDashboard(propName) {
             const data = analyzedProperties[propName];
             const fmt = (num) => new Intl.NumberFormat('id-ID').format(num);
-
-            document.getElementById('selectedHotelName').textContent = propName;
             
+            document.getElementById('selectedHotelName').textContent = propName;
+
             let tbody = document.querySelector('#dashboardTable tbody');
             tbody.innerHTML = '';
 
@@ -319,14 +338,14 @@
                 let tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="whitespace-nowrap text-gray-500">${data.dayOfSearch}</td>
-                    <td class="whitespace-nowrap font-medium">${item.tgl}</td>
+                    <td class="whitespace-nowrap font-medium text-blue-700">${formatExcelDate(item.tgl)}</td>
                     <td><span class="px-2 py-0.5 rounded text-[10px] font-bold ${data.flagging.toLowerCase().includes('not') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${data.flagging}</span></td>
                     <td><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${item.platform === 'Google Hotel' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}">${item.platform}</span></td>
                     <td class="text-right font-semibold">${fmt(item.native)}</td>
                     <td class="text-right text-red-600 font-semibold">${fmt(item.compRate)}</td>
-                    <td class="text-center"><span class="text-red-700 font-bold">-${diffPct}%</span></td>
-                    <td class="text-xs text-gray-600 italic">${deskripsi}</td>
-                    <td class="text-gray-600 text-xs">${item.compName}</td>
+                    <td class="text-center font-bold text-red-700">-${diffPct}%</td>
+                    <td class="text-[11px] text-gray-600 italic leading-tight">${deskripsi}</td>
+                    <td class="text-gray-700 font-medium">${item.compName}</td>
                 `;
                 tbody.appendChild(tr);
             });
