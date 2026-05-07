@@ -193,8 +193,19 @@
 
             // Grouping Logic
             let tempGroup = {};
+            let lastPropName = null;
+
             globalRawData.forEach(row => {
                 let propKey = Object.keys(row).find(k => k.toLowerCase().includes('property name'));
+                let propName = propKey ? String(row[propKey]).trim() : "";
+
+                if (propName === "") {
+                    propName = lastPropName;
+                } else {
+                    lastPropName = propName;
+                }
+                
+                if (!propName) return;
                 const propName = propKey ? row[propKey] : null;
                 if (!propName || String(propName).trim() === '') return;
                 
@@ -213,22 +224,37 @@
 
                 // Get Day of Search & Flagging from any row that has it
                 let dosKey = Object.keys(row).find(k => k.toLowerCase().includes('day of search'));
-                if (dosKey && row[dosKey] && tempGroup[propName].dayOfSearch === 'N/A') tempGroup[propName].dayOfSearch = formatExcelDate(row[dosKey]);
+                if (dosKey && row[dosKey] && (tempGroup[propName].dayOfSearch === 'N/A' || tempGroup[propName].dayOfSearch === '')) {
+                    tempGroup[propName].dayOfSearch = formatExcelDate(row[dosKey]);
+                }
 
                 let flagKey = keys[anchorIndex];
-                if (flagKey && row[flagKey] && tempGroup[propName].flagging === 'N/A') tempGroup[propName].flagging = row[flagKey];
+                if (flagKey && row[flagKey] && (tempGroup[propName].flagging === 'N/A' || tempGroup[propName].flagging === '')) {
+                    tempGroup[propName].flagging = row[flagKey];
+                }
+
+                // Column-based vendor fallback
+                let ghVendCol = Object.keys(row).find(k => k.toLowerCase().includes('google hotel') && k.toLowerCase().includes('vendor'));
+                let peVendCol = Object.keys(row).find(k => k.toLowerCase().includes('pe log') && k.toLowerCase().includes('vendor'));
+                if (ghVendCol && row[ghVendCol] && String(row[ghVendCol]).trim() !== '') tempGroup[propName].ghCompetitor = String(row[ghVendCol]).trim();
+                if (peVendCol && row[peVendCol] && String(row[peVendCol]).trim() !== '') tempGroup[propName].peVendor = String(row[peVendCol]).trim();
 
                 const lowMetric = metricValue.toLowerCase();
-                if (lowMetric.includes('native') && lowMetric.includes('price')) {
+                const isPE = lowMetric.includes('pe log') || lowMetric.includes('pe_log');
+                const isGH = lowMetric.includes('google hotel') || lowMetric.includes('gh');
+                const isPrice = lowMetric.includes('price') || lowMetric.includes('rate');
+                const isCheapest = lowMetric.includes('cheapest') || lowMetric.includes('vendor');
+
+                if (lowMetric.includes('native') && isPrice) {
                     dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].nativeRates[d] = cleanNum(row[d]); });
-                } else if (lowMetric.includes('pe log') && lowMetric.includes('price')) {
+                } else if (isPE && isPrice) {
                     dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].peRates[d] = cleanNum(row[d]); });
-                } else if (lowMetric.includes('google hotel') && lowMetric.includes('price')) {
+                } else if (isGH && isPrice) {
                     dateColumns.forEach(d => { if (cleanNum(row[d]) > 0) tempGroup[propName].ghRates[d] = cleanNum(row[d]); });
-                } else if (lowMetric.includes('pe log') && lowMetric.includes('cheapest') && !lowMetric.includes('price')) {
-                    dateColumns.forEach(d => { if (row[d]) tempGroup[propName].peVendors[d] = row[d]; });
-                } else if (lowMetric.includes('google hotel') && lowMetric.includes('cheapest') && !lowMetric.includes('price')) {
-                    dateColumns.forEach(d => { if (row[d]) tempGroup[propName].ghVendors[d] = row[d]; });
+                } else if (isPE && isCheapest && !isPrice) {
+                    dateColumns.forEach(d => { if (row[d] && String(row[d]).trim() !== '') tempGroup[propName].peVendors[d] = String(row[d]).trim(); });
+                } else if (isGH && isCheapest && !isPrice) {
+                    dateColumns.forEach(d => { if (row[d] && String(row[d]).trim() !== '') tempGroup[propName].ghVendors[d] = String(row[d]).trim(); });
                 }
             });
 
