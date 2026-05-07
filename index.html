@@ -206,6 +206,8 @@
                 }
                 
                 if (!propName) return;
+                const propName = propKey ? row[propKey] : null;
+                if (!propName || String(propName).trim() === '') return;
                 
                 const metricValue = String(row[metricColName] || '').trim();
                 
